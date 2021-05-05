@@ -84,6 +84,17 @@ struct config_t config = {
     1,   /* ib_port */
     -1 /* gid_idx */ };
 
+static int is_server(void)
+{
+    if (config.server_name == NULL)
+    {
+        return 1;
+    }
+    else
+    {
+        return 0;
+    }
+}
 /******************************************************************************
 Socket operations
 For simplicity, the example program uses TCP sockets to exchange control
@@ -118,6 +129,8 @@ static int sock_connect(const char *servername, int port)
     int sockfd = -1;
     int listenfd = 0;
     int tmp;
+    int optval = 0;
+    
     struct addrinfo hints =
     {
         .ai_flags = AI_PASSIVE,
@@ -138,6 +151,15 @@ static int sock_connect(const char *servername, int port)
         sockfd = socket(iterator->ai_family, iterator->ai_socktype, iterator->ai_protocol);
         if (sockfd >= 0)
         {
+            /* setsockopt: Handy debugging trick that lets 
+            * us rerun the server immediately after we kill it; 
+            * otherwise we have to wait about 20 secs. 
+            * Eliminates "ERROR on binding: Address already in use" error. 
+            */
+            optval = 1;
+            setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR,
+                       (const void *)&optval, sizeof(int));
+
             if (servername)
             {
                 /* Client mode. Initiate connection to remote */
@@ -479,7 +501,7 @@ static int resources_create(struct resources *res)
     int num_devices;
     int rc = 0;
     /* if client side */
-    if (config.server_name)
+    if (!is_server())
     {
         res->sock = sock_connect(config.server_name, config.tcp_port);
         if (res->sock < 0)
@@ -603,7 +625,7 @@ static int resources_create(struct resources *res)
     }
     memset(res->buf, 0, size);
     /* only in the server side put the message in the memory buffer */
-    if (!config.server_name)
+    if (is_server())
     {
         strcpy(res->buf, MSG);
         fprintf(stdout, "going to send the message: '%s'\n", res->buf);
@@ -891,8 +913,17 @@ static int connect_qp(struct resources *res)
         goto connect_qp_exit;
     }
 
+    /** 
+     * According the manual: 
+     * Once the QP is transitioned into the INIT state, the user may 
+     * begin to post receive buffers to the receive  queue  via the 
+     * ibv_post_recv command.  At  least one receive  buffer should 
+     * be  posted before the QP can be transitioned to the RTR 
+     * state. 
+     */
+
     /* let the client post RR to be prepared for incoming messages */
-    if (config.server_name)
+    if (!is_server())
     {
         rc = post_receive(res);
         if (rc)
@@ -901,6 +932,7 @@ static int connect_qp(struct resources *res)
             goto connect_qp_exit;
         }
     }
+
 
     /* modify the QP to RTR */
     rc = modify_qp_to_rtr(res->qp, remote_con_data.qp_num, remote_con_data.lid, remote_con_data.gid);
@@ -1014,7 +1046,16 @@ static int resources_destroy(struct resources *res)
 ******************************************************************************/
 static void print_config(void)
 {
+
     fprintf(stdout, " ------------------------------------------------\n");
+    if (is_server())
+    {
+        fprintf(stdout, " Server Side:\n");
+    }
+    else
+    {
+        fprintf(stdout, " Client Side:\n");
+    }
     fprintf(stdout, " Device name : \"%s\"\n", config.dev_name);
     fprintf(stdout, " IB port : %u\n", config.ib_port);
     if (config.server_name) fprintf(stdout, " IP : %s\n", config.server_name);
@@ -1114,7 +1155,11 @@ int main(int argc, char *argv[])
         }
     }
     /* parse the last parameter (if exists) as the server name */
-    if (optind == argc - 1) config.server_name = argv[optind];
+    if (optind == argc - 1) 
+    {
+        config.server_name = argv[optind];
+    }
+
     if (config.server_name)
     {
         printf("servername=%s\n", config.server_name);
@@ -1140,31 +1185,36 @@ int main(int argc, char *argv[])
         fprintf(stderr, "failed to connect QPs\n");
         goto main_exit;
     }
-    /* let the server post the sr */
-    if (!config.server_name)
+
+    /* let the server post the sr*/
+    if (is_server())
     {
-        if (post_send(&res))
+        fprintf(stdout, "server begin post_send \n");
+        rc = post_send(&res);
+        if (rc)
         {
-            fprintf(stderr, "failed to post sr\n");
+            fprintf(stderr, "failed to post RR\n");
             goto main_exit;
         }
     }
+
     /* in both sides we expect to get a completion */
     if (poll_completion(&res))
     {
         fprintf(stderr, "poll completion failed\n");
         goto main_exit;
     }
-    /* after polling the completion we have the message in the client buffer too */
-    if (config.server_name)
-    {
-        fprintf(stdout, "Message is: '%s'\n", res.buf);
-    }
-    else
+
+    if (is_server())
     {
         /* setup server buffer with read message */
         strcpy(res.buf, RDMAMSGR);
     }
+    else /* after polling the completion we have the message in the client buffer too */
+    {
+        fprintf(stdout, "Client Buffer's Message is: '%s'\n", res.buf);
+    }
+
     /* Sync so we are sure server side has data ready before client tries to read it */
     if (sock_sync_data(res.sock, 1, "R", &temp_char)) /* just send a dummy char back and forth */
     {
@@ -1172,9 +1222,10 @@ int main(int argc, char *argv[])
         rc = 1;
         goto main_exit;
     }
+
     /* Now the client performs an RDMA read and then write on server.
     Note that the server has no idea these events have occured */
-    if (config.server_name)
+    if (!is_server())
     {
         /* First we read contens of server's buffer */
         if (post_read(&res))
@@ -1213,11 +1264,12 @@ int main(int argc, char *argv[])
         rc = 1;
         goto main_exit;
     }
-    if (!config.server_name)
+    if (is_server())
     {
         fprintf(stdout, "Contents of server buffer: '%s'\n", res.buf);
     }
     rc = 0;
+
 main_exit:
     if (resources_destroy(&res))
     {
