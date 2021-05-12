@@ -527,6 +527,7 @@ static int resources_create(struct resources *res)
     }
     fprintf(stdout, "TCP connection was established\n");
     fprintf(stdout, "searching for IB devices in host\n");
+    
 ////////////////////////////////////////
 /// step 1: get IB device list
     /* get device names in the system */
@@ -566,6 +567,7 @@ static int resources_create(struct resources *res)
         rc = 1;
         goto resources_create_exit;
     }
+
 /////////////////////////////////////////
 /// step 2: open the requested device
 
@@ -581,6 +583,7 @@ static int resources_create(struct resources *res)
     ibv_free_device_list(dev_list);
     dev_list = NULL;
     ib_dev = NULL;
+
 ///////////////////////////////////////
 /// step 3: query the device capabilities
     /* query port properties */
@@ -590,6 +593,7 @@ static int resources_create(struct resources *res)
         rc = 1;
         goto resources_create_exit;
     }
+
 /////////////////////////////////////
 /// step 4: allocoate protection domain
     /* allocate Protection Domain */
@@ -600,6 +604,7 @@ static int resources_create(struct resources *res)
         rc = 1;
         goto resources_create_exit;
     }
+
 /////////////////////////////////////
 /// step 5: create cq
     /* each side will send only one WR, so Completion Queue with 1 entry is enough */
