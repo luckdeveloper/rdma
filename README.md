@@ -1,7 +1,7 @@
 # rdma
 
-##server side:
-[root@localhost rdma-example]# ./example1 -g 3
+## server side:
+[root@localhost rdma-example]\# ./example1 -g 3
  ------------------------------------------------
  Server Side:
  Device name : "(null)"
@@ -34,8 +34,8 @@ Contents of server buffer: 'RDMA write operaion '
 test result is 0
 
 
-##client side: 
-[root@localhost rdma-example]# ./example1 -p 19875 -g 3 192.168.1.100
+## client side: 
+[root@localhost rdma-example]\# ./example1 -p 19875 -g 3 192.168.1.100
 servername=192.168.1.100
  ------------------------------------------------
  Client Side:
